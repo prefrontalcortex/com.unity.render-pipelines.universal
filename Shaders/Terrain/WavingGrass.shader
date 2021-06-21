@@ -23,24 +23,26 @@ Shader "Hidden/TerrainEngine/Details/UniversalPipeline/WavingDoublePass"
 
             // -------------------------------------
             // Universal Pipeline keywords
-            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS
-            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS_CASCADE
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile _ _SHADOWS_SOFT
             #pragma multi_compile _ LIGHTMAP_SHADOW_MIXING
             #pragma multi_compile _ SHADOWS_SHADOWMASK
             #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
+            #pragma multi_compile_fragment _ _LIGHT_LAYERS
 
             // -------------------------------------
             // Unity defined keywords
             #pragma multi_compile _ DIRLIGHTMAP_COMBINED
             #pragma multi_compile _ LIGHTMAP_ON
             #pragma multi_compile_fog
+            #pragma multi_compile _ DEBUG_DISPLAY
 
             //--------------------------------------
             // GPU Instancing
             #pragma multi_compile_instancing
+            #pragma instancing_options renderinglayer
 
             #pragma vertex WavingGrassVert
             #pragma fragment LitPassFragmentGrass
@@ -106,7 +108,40 @@ Shader "Hidden/TerrainEngine/Details/UniversalPipeline/WavingDoublePass"
             #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/Shaders/Terrain/WavingGrassInput.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/Terrain/WavingGrassPasses.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/Shaders/Terrain/WavingGrassDepthNormalsPass.hlsl"
+            ENDHLSL
+        }
+
+        // This pass is used when drawing to a _CameraNormalsTexture texture
+        Pass
+        {
+            Name "DepthNormalsOnly"
+            Tags{"LightMode" = "DepthNormalsOnly"}
+
+            ZWrite On
+            Cull Off
+
+            HLSLPROGRAM
+            #pragma target 2.0
+
+            #pragma vertex DepthNormalOnlyVertex
+            #pragma fragment DepthNormalOnlyFragment
+
+            // -------------------------------------
+            // Material Keywords
+            #define _ALPHATEST_ON
+            #pragma shader_feature_local_fragment _GLOSSINESS_FROM_BASE_ALPHA
+
+            // -------------------------------------
+            // Unity defined keywords
+            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT // forward-only variant
+
+            //--------------------------------------
+            // GPU Instancing
+            #pragma multi_compile_instancing
+
+            #include "Packages/com.unity.render-pipelines.universal/Shaders/Terrain/WavingGrassInput.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/Shaders/Terrain/WavingGrassDepthNormalsPass.hlsl"
             ENDHLSL
         }
     }

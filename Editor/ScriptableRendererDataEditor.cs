@@ -4,13 +4,12 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
-using UnityEngine.Scripting.APIUpdating;
 using Object = UnityEngine.Object;
 
 namespace UnityEditor.Rendering.Universal
 {
     [CustomEditor(typeof(ScriptableRendererData), true)]
-    [MovedFrom("UnityEditor.Rendering.LWRP")] public class ScriptableRendererDataEditor : Editor
+    public class ScriptableRendererDataEditor : Editor
     {
         class Styles
         {
@@ -47,6 +46,7 @@ namespace UnityEditor.Rendering.Universal
             m_FalseBool = editorObj.FindProperty(nameof(falseBool));
             UpdateEditorList();
         }
+
         private void OnDisable()
         {
             ClearEditorsList();
@@ -146,7 +146,7 @@ namespace UnityEditor.Rendering.Universal
             }
             else
             {
-                CoreEditorUtils.DrawHeaderToggle(Styles.MissingFeature,renderFeatureProperty, m_FalseBool,pos => OnContextClick(pos, index));
+                CoreEditorUtils.DrawHeaderToggle(Styles.MissingFeature, renderFeatureProperty, m_FalseBool, pos => OnContextClick(pos, index));
                 m_FalseBool.boolValue = false; // always make sure false bool is false
                 EditorGUILayout.HelpBox(Styles.MissingFeature.tooltip, MessageType.Error);
                 if (GUILayout.Button("Attempt Fix", EditorStyles.miniButton))

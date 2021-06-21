@@ -1,9 +1,6 @@
 using System;
-using System.Linq;
 using System.Collections.Generic;
-using UnityEngine;
 using UnityEditor.ShaderGraph;
-using UnityEngine.Rendering;
 using UnityEditor.UIElements;
 using UnityEngine.UIElements;
 using UnityEditor.ShaderGraph.Legacy;
@@ -27,7 +24,7 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
 
             // Process SubShaders
             SubShaderDescriptor[] subShaders = { SubShaders.Unlit, SubShaders.UnlitDOTS };
-            for(int i = 0; i < subShaders.Length; i++)
+            for (int i = 0; i < subShaders.Length; i++)
             {
                 // Update Render State
                 subShaders[i].renderType = target.renderType;
@@ -102,7 +99,7 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
         public bool TryUpgradeFromMasterNode(IMasterNode1 masterNode, out Dictionary<BlockFieldDescriptor, int> blockMap)
         {
             blockMap = null;
-            if(!(masterNode is UnlitMasterNode1 unlitMasterNode))
+            if (!(masterNode is UnlitMasterNode1 unlitMasterNode))
                 return false;
 
             // Set blockmap
@@ -119,7 +116,7 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
             return true;
         }
 
-#region SubShader
+        #region SubShader
         static class SubShaders
         {
             public static SubShaderDescriptor Unlit = new SubShaderDescriptor()
@@ -129,7 +126,7 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
                 generatesPreview = true,
                 passes = new PassCollection
                 {
-                    { UnlitPasses.Unlit },
+                    { UnlitPasses.Forward },
                     { CorePasses.ShadowCaster },
                     { CorePasses.DepthOnly },
                 },
@@ -139,7 +136,7 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
             {
                 get
                 {
-                    var unlit = UnlitPasses.Unlit;
+                    var unlit = UnlitPasses.Forward;
                     var shadowCaster = CorePasses.ShadowCaster;
                     var depthOnly = CorePasses.DepthOnly;
 
@@ -162,21 +159,21 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
                 }
             }
         }
-#endregion
+        #endregion
 
-#region Pass
+        #region Pass
         static class UnlitPasses
         {
-            public static PassDescriptor Unlit = new PassDescriptor
+            public static PassDescriptor Forward = new PassDescriptor
             {
                 // Definition
-                displayName = "Pass",
+                displayName = "Universal Forward",
                 referenceName = "SHADERPASS_UNLIT",
                 useInPreview = true,
 
                 // Template
-                passTemplatePath = GenerationUtils.GetDefaultTemplatePath("PassMesh.template"),
-                sharedTemplateDirectories = GenerationUtils.GetDefaultSharedTemplateDirectories(),
+                passTemplatePath = UniversalTarget.kTemplatePath,
+                sharedTemplateDirectories = UniversalTarget.kSharedTemplateDirectories,
 
                 // Port Mask
                 validVertexBlocks = CoreBlockMasks.Vertex,
@@ -184,30 +181,51 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
 
                 // Fields
                 structs = CoreStructCollections.Default,
+                requiredFields = UnlitRequiredFields.Unlit,
                 fieldDependencies = CoreFieldDependencies.Default,
 
                 // Conditional State
                 renderStates = CoreRenderStates.Default,
                 pragmas = CorePragmas.Forward,
+                defines = CoreDefines.UseFragmentFog,
                 keywords = UnlitKeywords.Unlit,
                 includes = UnlitIncludes.Unlit,
-            };
-        }
-#endregion
 
-#region Keywords
+                // Custom Interpolator Support
+                customInterpolators = CoreCustomInterpDescriptors.Common
+            };
+
+            #region RequiredFields
+            static class UnlitRequiredFields
+            {
+                public static readonly FieldCollection Unlit = new FieldCollection()
+                {
+                    StructFields.Varyings.positionWS,
+                    StructFields.Varyings.normalWS,
+                    StructFields.Varyings.viewDirectionWS,
+                };
+            }
+            #endregion
+        }
+        #endregion
+
+        #region Keywords
         static class UnlitKeywords
         {
             public static KeywordCollection Unlit = new KeywordCollection
             {
-                { CoreKeywordDescriptors.Lightmap },
+                // This contain lightmaps because without a proper custom lighting solution in Shadergraph,
+                // people start with the unlit then add lightmapping nodes to it.
+                // If we removed lightmaps from the unlit target this would ruin a lot of peoples days.
+                { CoreKeywordDescriptors.StaticLightmap },
                 { CoreKeywordDescriptors.DirectionalLightmapCombined },
                 { CoreKeywordDescriptors.SampleGI },
+                { CoreKeywordDescriptors.DebugDisplay },
             };
         }
-#endregion
+        #endregion
 
-#region Includes
+        #region Includes
         static class UnlitIncludes
         {
             const string kUnlitPass = "Packages/com.unity.render-pipelines.universal/Editor/ShaderGraph/Includes/UnlitPass.hlsl";
@@ -223,6 +241,6 @@ namespace UnityEditor.Rendering.Universal.ShaderGraph
                 { kUnlitPass, IncludeLocation.Postgraph },
             };
         }
-#endregion
+        #endregion
     }
 }

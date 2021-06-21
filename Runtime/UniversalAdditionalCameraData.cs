@@ -2,18 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
-using UnityEngine.Scripting.APIUpdating;
 using UnityEngine.Serialization;
 using UnityEngine.Rendering;
 using System.ComponentModel;
-
-namespace UnityEngine.Rendering.LWRP
-{
-    [Obsolete("LWRP -> Universal (UnityUpgradable) -> UnityEngine.Rendering.Universal.UniversalAdditionalCameraData", true)]
-    public class LWRPAdditionalCameraData
-    {
-    }
-}
 
 namespace UnityEngine.Rendering.Universal
 {
@@ -23,7 +14,7 @@ namespace UnityEngine.Rendering.Universal
     /// When set to <c>On</c> option will be enabled regardless of what is set on the pipeline asset.
     /// When set to <c>UsePipelineSetting</c> value set in the <see cref="UniversalRenderPipelineAsset"/>.
     /// </summary>
-    [MovedFrom("UnityEngine.Rendering.LWRP")] public enum CameraOverrideOption
+    public enum CameraOverrideOption
     {
         Off,
         On,
@@ -31,7 +22,7 @@ namespace UnityEngine.Rendering.Universal
     }
 
     //[Obsolete("Renderer override is no longer used, renderers are referenced by index on the pipeline asset.")]
-    [MovedFrom("UnityEngine.Rendering.LWRP")] public enum RendererOverrideOption
+    public enum RendererOverrideOption
     {
         Custom,
         UsePipelineSettings,
@@ -111,7 +102,7 @@ namespace UnityEngine.Rendering.Universal
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Camera))]
     [ImageEffectAllowedInSceneView]
-    [MovedFrom("UnityEngine.Rendering.LWRP")] public class UniversalAdditionalCameraData : MonoBehaviour, ISerializationCallbackReceiver
+    public class UniversalAdditionalCameraData : MonoBehaviour, ISerializationCallbackReceiver
     {
         [FormerlySerializedAs("renderShadows"), SerializeField]
         bool m_RenderShadows = true;
@@ -123,8 +114,8 @@ namespace UnityEngine.Rendering.Universal
         CameraOverrideOption m_RequiresOpaqueTextureOption = CameraOverrideOption.UsePipelineSettings;
 
         [SerializeField] CameraRenderType m_CameraType = CameraRenderType.Base;
-		[SerializeField] List<Camera> m_Cameras = new List<Camera>();
-		[SerializeField] int m_RendererIndex = -1;
+        [SerializeField] List<Camera> m_Cameras = new List<Camera>();
+        [SerializeField] int m_RendererIndex = -1;
 
         [SerializeField] LayerMask m_VolumeLayerMask = 1; // "Default"
         [SerializeField] Transform m_VolumeTrigger = null;
@@ -138,7 +129,6 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField] bool m_AllowXRRendering = true;
 
         [NonSerialized] Camera m_Camera;
-
         // Deprecated:
         [FormerlySerializedAs("requiresDepthTexture"), SerializeField]
         bool m_RequiresDepthTexture = false;
@@ -146,7 +136,7 @@ namespace UnityEngine.Rendering.Universal
         [FormerlySerializedAs("requiresColorTexture"), SerializeField]
         bool m_RequiresColorTexture = false;
 
-        [HideInInspector] [SerializeField] float m_Version = 2;
+        [HideInInspector][SerializeField] float m_Version = 2;
 
         public float version => m_Version;
 
@@ -177,6 +167,8 @@ namespace UnityEngine.Rendering.Universal
                 return m_Camera;
             }
         }
+
+
         /// <summary>
         /// Controls if this camera should render shadows.
         /// </summary>

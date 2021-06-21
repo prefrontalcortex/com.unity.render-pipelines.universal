@@ -59,6 +59,9 @@ namespace UnityEngine.Rendering.Universal.Internal
         RenderTargetIdentifier[] m_MRT2;
         Vector4[] m_BokehKernel;
         int m_BokehHash;
+        // Needed if the device changes its render target width/height (ex, Mobile platform allows change of orientation)
+        float m_BokehMaxRadius;
+        float m_BokehRCPAspect;
 
         // True when this is the very last pass in the pipeline
         bool m_IsFinalPass;
@@ -73,6 +76,9 @@ namespace UnityEngine.Rendering.Universal.Internal
 
         // Option to use procedural draw instead of cmd.blit
         bool m_UseDrawProcedural;
+
+        // Use Fast conversions between SRGB and Linear
+        bool m_UseFastSRGBLinearConversion;
 
         Material m_BlitMaterial;
 
@@ -124,6 +130,7 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             m_MRT2 = new RenderTargetIdentifier[2];
             m_ResetHistory = true;
+            base.useNativeRenderPass = false;
         }
 
         public void Cleanup() => m_Materials.Cleanup();
@@ -208,6 +215,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             m_Tonemapping         = stack.GetComponent<Tonemapping>();
             m_FilmGrain           = stack.GetComponent<FilmGrain>();
             m_UseDrawProcedural   = renderingData.cameraData.xr.enabled;
+            m_UseFastSRGBLinearConversion = renderingData.postProcessingData.useFastSRGBLinearConversion;
 
             if (m_IsFinalPass)
             {
@@ -243,7 +251,7 @@ namespace UnityEngine.Rendering.Universal.Internal
         }
 
         RenderTextureDescriptor GetCompatibleDescriptor()
-            => GetCompatibleDescriptor(m_Descriptor.width, m_Descriptor.height, m_Descriptor.graphicsFormat, m_Descriptor.depthBufferBits);
+            => GetCompatibleDescriptor(m_Descriptor.width, m_Descriptor.height, m_Descriptor.graphicsFormat);
 
         RenderTextureDescriptor GetCompatibleDescriptor(int width, int height, GraphicsFormat format, int depthBufferBits = 0)
         {
@@ -295,7 +303,7 @@ namespace UnityEngine.Rendering.Universal.Internal
 
         void Render(CommandBuffer cmd, ref RenderingData renderingData)
         {
-            ref var cameraData = ref renderingData.cameraData;
+            ref CameraData cameraData = ref renderingData.cameraData;
 
             // Don't use these directly unless you have a good reason to, use GetSource() and
             // GetDestination() instead
@@ -350,7 +358,6 @@ namespace UnityEngine.Rendering.Universal.Internal
             // Anti-aliasing
             if (cameraData.antialiasing == AntialiasingMode.SubpixelMorphologicalAntiAliasing && SystemInfo.graphicsDeviceType != GraphicsDeviceType.OpenGLES2)
             {
-
                 using (new ProfilingScope(cmd, ProfilingSampler.Get(URPProfileId.SMAA)))
                 {
                     DoSubpixelMorphologicalAntialiasing(ref cameraData, cmd, GetSource(), GetDestination());
@@ -359,7 +366,10 @@ namespace UnityEngine.Rendering.Universal.Internal
             }
 
             // Depth of Field
-            if (m_DepthOfField.IsActive() && !isSceneViewCamera)
+            // Adreno 3xx SystemInfo.graphicsShaderLevel is 35, but instancing support is disabled due to buggy drivers.
+            // DOF shader uses #pragma target 3.5 which adds requirement for instancing support, thus marking the shader unsupported on those devices.
+            var dofMaterial = m_DepthOfField.mode.value == DepthOfFieldMode.Gaussian ? m_Materials.gaussianDepthOfField : m_Materials.bokehDepthOfField;
+            if (m_DepthOfField.IsActive() && !isSceneViewCamera && dofMaterial != null)
             {
                 var markerName = m_DepthOfField.mode.value == DepthOfFieldMode.Gaussian
                     ? URPProfileId.GaussianDepthOfField
@@ -420,6 +430,17 @@ namespace UnityEngine.Rendering.Universal.Internal
                 if (RequireSRGBConversionBlitToBackBuffer(cameraData))
                     m_Materials.uber.EnableKeyword(ShaderKeywordStrings.LinearToSRGBConversion);
 
+                if (m_UseFastSRGBLinearConversion)
+                {
+                    m_Materials.uber.EnableKeyword(ShaderKeywordStrings.UseFastSRGBLinearConversion);
+                }
+
+                if (isSceneViewCamera)
+                {
+                    // Scene-view doesn't necessarily use the final-blit, so ensure we set the debug properties here (if necessary)...
+                    DebugHandler?.UpdateShaderGlobalPropertiesFinalBlitPass(cmd, ref cameraData);
+                }
+
                 // Done with Uber, blit it
                 cmd.SetGlobalTexture(ShaderPropertyId.sourceTex, GetSource());
 
@@ -440,7 +461,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                 if (cameraData.xr.enabled)
                 {
                     cmd.SetRenderTarget(new RenderTargetIdentifier(cameraTarget, 0, CubemapFace.Unknown, -1),
-                         colorLoadAction, RenderBufferStoreAction.Store, RenderBufferLoadAction.DontCare, RenderBufferStoreAction.DontCare);
+                        colorLoadAction, RenderBufferStoreAction.Store, RenderBufferLoadAction.DontCare, RenderBufferStoreAction.DontCare);
 
                     bool isRenderToBackBufferTarget = cameraTarget == cameraData.xr.renderTarget && !cameraData.xr.renderTargetIsRenderTexture;
                     if (isRenderToBackBufferTarget)
@@ -463,7 +484,7 @@ namespace UnityEngine.Rendering.Universal.Internal
                         cmd.SetRenderTarget(new RenderTargetIdentifier(m_Source.id, 0, CubemapFace.Unknown, -1),
                             colorLoadAction, RenderBufferStoreAction.Store, RenderBufferLoadAction.DontCare, RenderBufferStoreAction.DontCare);
 
-                        scaleBias = new Vector4(1, 1, 0, 0); ;
+                        scaleBias = new Vector4(1, 1, 0, 0);;
                         cmd.SetGlobalVector(ShaderPropertyId.scaleBias, scaleBias);
                         cmd.DrawProcedural(Matrix4x4.identity, m_BlitMaterial, 0, MeshTopology.Quads, 4, 1, null);
                     }
@@ -528,8 +549,8 @@ namespace UnityEngine.Rendering.Universal.Internal
             material.SetVector(ShaderConstants._Metrics, new Vector4(1f / m_Descriptor.width, 1f / m_Descriptor.height, m_Descriptor.width, m_Descriptor.height));
             material.SetTexture(ShaderConstants._AreaTexture, m_Data.textures.smaaAreaTex);
             material.SetTexture(ShaderConstants._SearchTexture, m_Data.textures.smaaSearchTex);
-            material.SetInt(ShaderConstants._StencilRef, kStencilBit);
-            material.SetInt(ShaderConstants._StencilMask, kStencilBit);
+            material.SetFloat(ShaderConstants._StencilRef, (float)kStencilBit);
+            material.SetFloat(ShaderConstants._StencilMask, (float)kStencilBit);
 
             // Quality presets
             material.shaderKeywords = null;
@@ -569,7 +590,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             cmd.SetRenderTarget(new RenderTargetIdentifier(ShaderConstants._EdgeTexture, 0, CubemapFace.Unknown, -1),
                 RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store, stencil,
                 RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store);
-            cmd.ClearRenderTarget(true, true, Color.clear);
+            cmd.ClearRenderTarget(RTClearFlags.ColorStencil, Color.clear, 1.0f, 0);
             cmd.SetGlobalTexture(ShaderConstants._ColorTexture, source);
             DrawFullscreenMesh(cmd, material, 0);
 
@@ -670,7 +691,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             cmd.ReleaseTemporaryRT(ShaderConstants._PongTexture);
         }
 
-        void PrepareBokehKernel()
+        void PrepareBokehKernel(float maxRadius, float rcpAspect)
         {
             const int kRings = 4;
             const int kPointsPerRing = 7;
@@ -706,7 +727,14 @@ namespace UnityEngine.Rendering.Universal.Internal
                     float u = r * Mathf.Cos(phi - rotation);
                     float v = r * Mathf.Sin(phi - rotation);
 
-                    m_BokehKernel[idx] = new Vector4(u, v);
+                    float uRadius = u * maxRadius;
+                    float vRadius = v * maxRadius;
+                    float uRadiusPowTwo = uRadius * uRadius;
+                    float vRadiusPowTwo = vRadius * vRadius;
+                    float kernelLength = Mathf.Sqrt((uRadiusPowTwo + vRadiusPowTwo));
+                    float uRCP = uRadius * rcpAspect;
+
+                    m_BokehKernel[idx] = new Vector4(uRadius, vRadius, kernelLength, uRCP);
                     idx++;
                 }
             }
@@ -735,14 +763,17 @@ namespace UnityEngine.Rendering.Universal.Internal
             float maxRadius = GetMaxBokehRadiusInPixels(m_Descriptor.height);
             float rcpAspect = 1f / (wh / (float)hh);
 
+            CoreUtils.SetKeyword(material, ShaderKeywordStrings.UseFastSRGBLinearConversion, m_UseFastSRGBLinearConversion);
             cmd.SetGlobalVector(ShaderConstants._CoCParams, new Vector4(P, maxCoC, maxRadius, rcpAspect));
 
             // Prepare the bokeh kernel constant buffer
             int hash = m_DepthOfField.GetHashCode();
-            if (hash != m_BokehHash)
+            if (hash != m_BokehHash || maxRadius != m_BokehMaxRadius || rcpAspect != m_BokehRCPAspect)
             {
                 m_BokehHash = hash;
-                PrepareBokehKernel();
+                m_BokehMaxRadius = maxRadius;
+                m_BokehRCPAspect = rcpAspect;
+                PrepareBokehKernel(maxRadius, rcpAspect);
             }
 
             cmd.SetGlobalVectorArray(ShaderConstants._BokehKernel, m_BokehKernel);
@@ -754,6 +785,8 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             PostProcessUtils.SetSourceSize(cmd, m_Descriptor);
             cmd.SetGlobalVector(ShaderConstants._DownSampleScaleFactor, new Vector4(1.0f / downSample, 1.0f / downSample, downSample, downSample));
+            float uvMargin = (1.0f / m_Descriptor.height) * downSample;
+            cmd.SetGlobalVector(ShaderConstants._BokehConstants, new Vector4(uvMargin, uvMargin * 2.0f));
 
             // Compute CoC
             Blit(cmd, source, ShaderConstants._FullCoCTexture, material, 0);
@@ -1117,9 +1150,9 @@ namespace UnityEngine.Rendering.Universal.Internal
             material.SetVector(ShaderConstants._UserLut_Params, !m_ColorLookup.IsActive()
                 ? Vector4.zero
                 : new Vector4(1f / m_ColorLookup.texture.value.width,
-                              1f / m_ColorLookup.texture.value.height,
-                              m_ColorLookup.texture.value.height - 1f,
-                              m_ColorLookup.contribution.value)
+                    1f / m_ColorLookup.texture.value.height,
+                    m_ColorLookup.texture.value.height - 1f,
+                    m_ColorLookup.contribution.value)
             );
 
             if (hdr)
@@ -1194,6 +1227,8 @@ namespace UnityEngine.Rendering.Universal.Internal
 
             if (RequireSRGBConversionBlitToBackBuffer(cameraData))
                 material.EnableKeyword(ShaderKeywordStrings.LinearToSRGBConversion);
+
+            DebugHandler?.UpdateShaderGlobalPropertiesFinalBlitPass(cmd, ref cameraData);
 
             cmd.SetGlobalTexture(ShaderPropertyId.sourceTex, m_Source.Identifier());
 
@@ -1308,6 +1343,7 @@ namespace UnityEngine.Rendering.Universal.Internal
             public static readonly int _DofTexture         = Shader.PropertyToID("_DofTexture");
             public static readonly int _CoCParams          = Shader.PropertyToID("_CoCParams");
             public static readonly int _BokehKernel        = Shader.PropertyToID("_BokehKernel");
+            public static readonly int _BokehConstants     = Shader.PropertyToID("_BokehConstants");
             public static readonly int _PongTexture        = Shader.PropertyToID("_PongTexture");
             public static readonly int _PingTexture        = Shader.PropertyToID("_PingTexture");
 
